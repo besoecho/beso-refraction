@@ -70,12 +70,33 @@ with sync_playwright() as pw:
     errors = []
     page.on('pageerror', lambda err: errors.append(str(err)))
     page.goto(base+'/fixture')
+    # The panel and drawer exist while the draggable capsule is disabled.
+    page.evaluate("""() => {
+        const panel=document.createElement('div');panel.id='ipe-panel';panel.style.display='none';
+        panel.innerHTML='<button>关闭小海螺</button><div class="ipe-sections">提示词设置</div>';
+        const native=document.createElement('button');native.id='iped-open-panel';native.hidden=true;
+        native.onclick=()=>{panel.classList.add('visible');panel.dataset.ipeOpen='1';
+            panel.style.setProperty('display','flex','important');panel.style.setProperty('width','2px','important');};
+        panel.firstChild.onclick=()=>{panel.classList.remove('visible');panel.dataset.ipeOpen='0';panel.style.display='none';};
+        document.body.append(panel,native);
+    }""")
+    for _ in range(2):
+        page.get_by_role('button',name='打开小海螺').click()
+        bounds=page.locator('#ipe-panel').bounding_box()
+        assert bounds and bounds['width']>300 and bounds['height']>200
+        assert page.locator('#ipe-chat-quick-entry').count()==0
+        page.get_by_text('关闭小海螺').click()
+        expect(page.locator('#ipe-panel')).to_be_hidden()
     page.get_by_role('button',name='折光主页').click()
-    for label,value in [('连接名称','我的接口'),('API 地址',base+'/v1'),('API Key','mock-only'),('模型','test-model')]:
+    for label,value in [('连接名称','我的接口'),('API 地址',base+'/v1'),('API Key','mock-only')]:
         page.get_by_label(label,exact=label=='模型').fill(value)
     page.get_by_role('button',name='测试 / 获取模型').click()
     expect(page.locator('.br-note')).to_contain_text('1 个模型')
+    page.get_by_label('选择模型').select_option('test-model')
+    page.get_by_label('预设尺寸').select_option('2160x3840')
     page.get_by_role('button',name='保存并使用').click()
+    assert page.evaluate('c.extensionSettings.besoRefraction.profiles[0].model')=='test-model'
+    assert page.evaluate('c.extensionSettings.besoRefraction.profiles[0].size')=='2160x3840'
     with page.expect_download() as downloaded:
         page.get_by_role('button',name='导出连接').click()
     exported = Path(downloaded.value.path()).read_text()

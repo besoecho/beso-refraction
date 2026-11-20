@@ -49,6 +49,17 @@ function validate(p) {
     }
     if (type==='runninghub' && !p.workflow) throw Error('请填写工作流 ID');
 }
+// Pixel sizes offered by 智绘姬 across its general and workflow connections.
+const sizeGroups = [
+    ['4K', ['3840x2160','2160x3840','2880x2880','3312x2480','2480x3312','3520x2336','3840x1920']],
+    ['2K', ['2560x1440','1440x2560','2048x2048','2048x1536','1536x2048','2048x1152']],
+    ['1080P', ['1920x1080','1080x1920']],
+    ['1K / 标清', ['1024x1024','1280x720','720x1280','1152x896','896x1152','768x768','512x512']],
+    ['扩散模型常用', ['640x640','512x768','768x512','1216x832','832x1216']],
+];
+const modelLists = new Map();
+const modelListKey = p => JSON.stringify([p.id,p.url.trim(),p.type]);
+
 export function connections(root) {
     let draft={...(db().profiles.find(p=>p.id===db().activeId) || blank())};
     function draw() {
@@ -72,8 +83,44 @@ export function connections(root) {
         try {initialOrigin=new URL(draft.url).origin;} catch {}
         field('API Key（保存在当前浏览器）',secret,initialOrigin ? localStorage.getItem(keyName(draft)) || '' : '');
         const model=input('模型','model');
-        const datalist=node('datalist'); datalist.id='br-models'; root.append(datalist); model.setAttribute('list',datalist.id);
-        input('尺寸','size','1024x1024');
+        const picker=node('select');
+        const pickerRow=field('选择模型',picker,'');
+        model.parentElement.before(pickerRow);
+        function showModels(names) {
+            picker.replaceChildren();
+            option(picker,'','请选择模型');
+            for(const name of names) option(picker,name,name);
+            option(picker,'__br_manual__','手动填写…');
+            pickerRow.hidden=!names.length;
+            picker.value=names.includes(draft.model) ? draft.model : draft.model ? '__br_manual__' : '';
+            model.parentElement.hidden=names.length>0 && picker.value!=='__br_manual__';
+        }
+        picker.onchange=()=>{
+            const manual=picker.value==='__br_manual__';
+            model.parentElement.hidden=!manual;
+            if (manual) {model.focus();model.select();}
+            else {draft.model=picker.value;model.value=picker.value;}
+        };
+        const sizePicker=node('select');
+        const allSizes=sizeGroups.flatMap(([,values])=>values);
+        for (const [label,values] of sizeGroups) {
+            const group=node('optgroup');group.label=label;
+            for (const size of values) {
+                const [w,h]=size.split('x').map(Number);
+                option(group,size,size.replace('x',' × ')+' · '+(w===h?'方图':w>h?'横图':'竖图'));
+            }
+            sizePicker.append(group);
+        }
+        option(sizePicker,'custom','自定义尺寸…');
+        field('预设尺寸',sizePicker,allSizes.includes(draft.size)?draft.size:'custom');
+        const sizeInput=input('自定义宽 × 高','size','例如 1024x1536');
+        sizeInput.parentElement.hidden=sizePicker.value!=='custom';
+        sizePicker.onchange=()=>{
+            const custom=sizePicker.value==='custom';
+            sizeInput.parentElement.hidden=!custom;
+            if(custom){sizeInput.focus();sizeInput.select();}
+            else {draft.size=sizePicker.value;sizeInput.value=draft.size;}
+        };
         const workflow=input('工作流 ID','workflow');
         const template=node('textarea'); template.rows=5;
         field('请求模板 JSON（用 {prompt} 代表提示词）',template,draft.template); template.oninput=()=>draft.template=template.value;
@@ -84,9 +131,11 @@ export function connections(root) {
         const route=node('label','通过酒馆代理连接 '); const proxy=node('input'); proxy.type='checkbox';proxy.checked=draft.proxy;route.prepend(proxy);details.append(route);
         proxy.onchange=()=>draft.proxy=proxy.checked;
         const refresh=()=>{let k;try{k=kind(draft);}catch{} workflow.parentElement.hidden=k!=='runninghub';template.parentElement.hidden=!['runninghub','comfy','custom'].includes(k);};
-        proto.onchange=()=>{draft.type=proto.value;refresh();};
-        url.addEventListener('input',()=>{let origin='';try{origin=new URL(draft.url).origin;}catch{} if(origin!==initialOrigin){secret.value='';initialOrigin=origin;}refresh();});
-        refresh();
+        let requestNumber=0;
+        const resetModels=()=>{requestNumber++;showModels(modelLists.get(modelListKey(draft)) || []);};
+        proto.onchange=()=>{draft.type=proto.value;refresh();resetModels();};
+        url.addEventListener('input',()=>{let origin='';try{origin=new URL(draft.url).origin;}catch{} if(origin!==initialOrigin){secret.value='';initialOrigin=origin;}refresh();resetModels();});
+        refresh();resetModels();
         const note=node('p','','br-note');
         const actions=node('div',undefined,'br-actions');root.append(actions,note);
         actions.append(button('保存并使用',()=>{
@@ -95,18 +144,23 @@ export function connections(root) {
             const i=db().profiles.findIndex(o=>o.id===p.id); if(i<0) db().profiles.push(p); else db().profiles[i]=p;
             db().activeId=p.id;save();draft={...p};draw();notify('已使用「'+p.name+'」');
         }),button('测试 / 获取模型',async()=>{
+            const run=++requestNumber;
             note.textContent='正在测试…'; const p={...draft,key:secret.value.trim()};
             try {
                 let names;
                 try { names=await models(p,AbortSignal.timeout(15000)); }
                 catch(e) {
-                    if (draft.proxy || !(e instanceof TypeError || e.name==='TimeoutError')) throw e;
+                    if (run!==requestNumber || !picker.isConnected) return;
+                    if (p.proxy || !(e instanceof TypeError || e.name==='TimeoutError')) throw e;
                     names=await models({...p,proxy:true},AbortSignal.timeout(15000));
+                    if (run!==requestNumber || !picker.isConnected) return;
                     proxy.checked=true; draft.proxy=true;
                 }
-                datalist.replaceChildren(); for(const n of names) option(datalist,n,n);
+                if (run!==requestNumber || !picker.isConnected) return;
+                names=[...new Set(names.filter(n=>typeof n==='string' && n.length>0))];
+                modelLists.set(modelListKey(p),names);showModels(names);
                 note.textContent=names.length?'已取得 '+names.length+' 个模型，可点模型框选取。':'已连接';
-            } catch(e) {details.open=true;note.textContent=e.message;}
+            } catch(e) {if(run===requestNumber && picker.isConnected){details.open=true;note.textContent=e.message;}}
         }),button('导出连接',()=>{
             const clean=db().profiles.map(p=>{const copy=plain(p); delete copy.id;return copy;});
             fileBlob(new Blob([JSON.stringify(clean,null,2)],{type:'application/json'}),'折光-连接.json');

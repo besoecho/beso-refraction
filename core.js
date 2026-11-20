@@ -38,7 +38,41 @@ export async function anchor(t) {
     if (!alive(t)) throw Error('目标回复已改变');
     return id;
 }
-export const hailuoOpen = () => q('#iped-open-panel') || q('#ipe-chat-quick-entry');
+export const hasHailuo = () => Boolean(q('#ipe-panel, #iped-open-panel'));
+export function openHailuo() {
+    const opener = q('#iped-open-panel');
+    let panel = q('#ipe-panel');
+    if (!panel && !opener) throw Error('尚未检测到小海螺');
+    // The drawer button toggles the native panel. The floating capsule listens
+    // for drag-end events and may not exist when the user hides it.
+    if (panel?.dataset.ipeOpen !== '1') opener?.click();
+    panel = q('#ipe-panel');
+    if (!panel || !q('.ipe-sections', panel)) throw Error('小海螺面板还未就绪，请等待酒馆载入后再试');
+    if (panel.dataset.ipeOpen !== '1') {
+        panel.classList.add('visible');
+        panel.style.setProperty('display','flex','important');
+        panel.dataset.ipeOpen = '1';
+    }
+    panel.classList.add('br-opened-hailuo');
+    // Native positioning is inline !important and sometimes refers to the
+    // previous capsule position. Anchor this open to the visible viewport.
+    if (!panel._brCloseObserver) {
+        const geometry = ['left','right','top','bottom','width','height','max-height','transform'];
+        const saved = geometry.map(prop=>[prop,panel.style.getPropertyValue(prop),panel.style.getPropertyPriority(prop)]);
+        for (const prop of geometry) panel.style.removeProperty(prop);
+        const observer = new MutationObserver(()=>{
+            if (panel.dataset.ipeOpen === '1' && panel.classList.contains('visible')) return;
+            observer.disconnect();
+            panel.classList.remove('br-opened-hailuo');
+            for (const [prop,value,priority] of saved) {
+                if (value && !panel.style.getPropertyValue(prop)) panel.style.setProperty(prop,value,priority);
+            }
+            delete panel._brCloseObserver;
+        });
+        observer.observe(panel,{attributes:true,attributeFilter:['data-ipe-open','class']});
+        panel._brCloseObserver=observer;
+    }
+}
 export async function extract(t, signal, stage) {
     const existing=readDraw(t.message.mes);
     if (existing) return existing;

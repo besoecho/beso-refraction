@@ -1,5 +1,5 @@
 import {generate} from './channels.js';
-import {ctx,db,save,uid,q,notify,scope,latest,capture,alive,anchor,versionId,hailuoOpen,extract,upload} from './core.js';
+import {ctx,db,save,uid,q,notify,scope,latest,capture,alive,anchor,versionId,hasHailuo,openHailuo,extract,upload} from './core.js';
 import {node,button,connections,activeProfile} from './connections.js';
 import {modal,gallery,viewer,saveOriginal} from './gallery.js';
 
@@ -104,7 +104,7 @@ function renderFloors() {
         if(old?.dataset.items===signature)continue;
         const next=floorBox(items);next.dataset.items=signature;old?.remove();target.append(next);
     }
-    if(shell){const missing=!hailuoOpen();shell.setAttribute('aria-disabled',String(missing));shell.title=missing?'未检测到小海螺':'打开小海螺';}
+    if(shell){const missing=!hasHailuo();shell.setAttribute('aria-disabled',String(missing));shell.title=missing?'未检测到小海螺':'打开小海螺';}
 }
 function later(){if(scheduled)return;scheduled=true;requestAnimationFrame(()=>{scheduled=false;renderFloors();});}
 function jump(bottom) {
@@ -124,7 +124,7 @@ function init() {
     function icon(title,cls,fn){const b=button('',fn);b.append(node('i',undefined,'fa-solid '+cls));b.title=title;b.setAttribute('aria-label',title);bar.append(b);return b;}
     icon('折光主页','fa-house',()=>panelOpen(db().profiles.length?'相册':'生图连接'));
     trigger=icon('生成最新 AI 回复的图片','fa-image',()=>{if(job){stop();return;} const stream=ctx().streamingProcessor;if(stream && !stream.isFinished && !stream.isStopped){notify('等这条 AI 回复写完再生图');return;} if(!db().profiles.length){panelOpen('生图连接');return;}const t=capture(latest());void run({target:t});});
-    shell=icon('打开小海螺','fa-water',()=>{const b=hailuoOpen();if(b)b.click();else notify('尚未检测到小海螺');});shell.firstChild.remove();shell.textContent='🐚';
+    shell=icon('打开小海螺','fa-water',openHailuo);shell.firstChild.remove();shell.textContent='🐚';
     status=node('span','','br-status');status.setAttribute('aria-live','polite');bar.append(status);
     icon('当前楼层顶端','fa-arrow-up',()=>jump(false));icon('当前楼层底端','fa-arrow-down',()=>jump(true));
     chat.before(bar);

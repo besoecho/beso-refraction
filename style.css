@@ -50,3 +50,23 @@
 .br-full details {overflow:auto;flex-shrink:0;max-height:42dvh;}
 #chat .mes_text .ipe-draw-inline {display:none;}
 @media (pointer:coarse) {#br-bar button {width:40px;}.br-dialog input,.br-dialog select,.br-dialog textarea {font-size:16px!important;}}
+
+#ipe-panel.br-opened-hailuo[data-ipe-open="1"] {
+    position:fixed !important;
+    z-index:2147483646 !important;
+    display:flex !important;
+    flex-direction:column !important;
+    visibility:visible !important;
+    opacity:1 !important;
+    top:auto !important;
+    bottom:max(12px, env(safe-area-inset-bottom)) !important;
+    left:50% !important;
+    right:auto !important;
+    transform:translateX(-50%) !important;
+    width:min(420px, calc(100vw - 24px)) !important;
+    height:min(640px, 72vh) !important;
+    height:min(640px, 72dvh) !important;
+    max-height:none !important;
+    box-sizing:border-box !important;
+}
+#ipe-panel.br-opened-hailuo .ipe-sections { flex:1 1 auto; min-height:0; overflow-y:auto; }
