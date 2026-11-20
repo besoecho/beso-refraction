@@ -115,13 +115,14 @@
     .br-dialog header button {background:#ffffff12;}
 }
 
-#ipe-panel.br-opened-hailuo[data-ipe-open="1"] {
+#ipe-panel.br-opened-hailuo {
     position:fixed !important;
     z-index:2147483646 !important;
     display:flex !important;
     flex-direction:column !important;
     visibility:visible !important;
     opacity:1 !important;
+    pointer-events:auto !important;
     top:auto !important;
     bottom:max(12px, env(safe-area-inset-bottom)) !important;
     left:50% !important;

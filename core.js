@@ -38,17 +38,27 @@ export async function anchor(t) {
     if (!alive(t)) throw Error('目标回复已改变');
     return id;
 }
-export const hasHailuo = () => Boolean(q('#ipe-panel, #iped-open-panel'));
-export function openHailuo() {
-    const opener = q('#iped-open-panel');
+export const hasHailuo = () => Boolean(q('#ipe-panel, #iped-open-panel, #ipe-chat-quick-entry'));
+const hailuoOpen = panel => Boolean(panel && (panel.dataset.ipeOpen === '1' || panel.classList.contains('visible') || panel.open));
+async function waitForHailuoPanel() {
+    for (let i=0;i<30;i++) {
+        const panel=q('#ipe-panel');
+        if (panel) return panel;
+        await delay(50);
+    }
+    return null;
+}
+export async function openHailuo() {
+    const opener = q('#iped-open-panel') || q('#ipe-chat-quick-entry');
     let panel = q('#ipe-panel');
     if (!panel && !opener) throw Error('尚未检测到小海螺');
-    // The drawer button toggles the native panel. The floating capsule listens
-    // for drag-end events and may not exist when the user hides it.
-    if (panel?.dataset.ipeOpen !== '1') opener?.click();
-    panel = q('#ipe-panel');
-    if (!panel || !q('.ipe-sections', panel)) throw Error('小海螺面板还未就绪，请等待酒馆载入后再试');
-    if (panel.dataset.ipeOpen !== '1') {
+    // Prefer the native toggle: it also runs Hailuo's own lazy initialization.
+    // The panel may be created after the click, so do not inspect it synchronously.
+    if (!hailuoOpen(panel)) opener?.click();
+    panel = await waitForHailuoPanel();
+    if (!panel) throw Error('小海螺面板还未就绪，请等待酒馆载入后再试');
+    // Fallback for an existing panel whose native launcher has been hidden.
+    if (!hailuoOpen(panel)) {
         panel.classList.add('visible');
         panel.style.setProperty('display','flex','important');
         panel.dataset.ipeOpen = '1';
@@ -61,7 +71,7 @@ export function openHailuo() {
         const saved = geometry.map(prop=>[prop,panel.style.getPropertyValue(prop),panel.style.getPropertyPriority(prop)]);
         for (const prop of geometry) panel.style.removeProperty(prop);
         const observer = new MutationObserver(()=>{
-            if (panel.dataset.ipeOpen === '1' && panel.classList.contains('visible')) return;
+            if (hailuoOpen(panel)) return;
             observer.disconnect();
             panel.classList.remove('br-opened-hailuo');
             for (const [prop,value,priority] of saved) {

@@ -70,23 +70,38 @@ with sync_playwright() as pw:
     errors = []
     page.on('pageerror', lambda err: errors.append(str(err)))
     page.goto(base+'/fixture')
-    # The panel and drawer exist while the draggable capsule is disabled.
+    # Native opening is asynchronous and does not depend on an internal container class.
     page.evaluate("""() => {
-        const panel=document.createElement('div');panel.id='ipe-panel';panel.style.display='none';
-        panel.innerHTML='<button>关闭小海螺</button><div class="ipe-sections">提示词设置</div>';
         const native=document.createElement('button');native.id='iped-open-panel';native.hidden=true;
-        native.onclick=()=>{panel.classList.add('visible');panel.dataset.ipeOpen='1';
-            panel.style.setProperty('display','flex','important');panel.style.setProperty('width','2px','important');};
-        panel.firstChild.onclick=()=>{panel.classList.remove('visible');panel.dataset.ipeOpen='0';panel.style.display='none';};
-        document.body.append(panel,native);
+        native.onclick=()=>{setTimeout(()=>{
+            let panel=document.getElementById('ipe-panel');
+            if(!panel){
+                panel=document.createElement('div');panel.id='ipe-panel';panel.style.display='none';
+                panel.innerHTML='<button>关闭小海螺</button><div class="ipe-body">提示词设置</div>';
+                panel.firstChild.onclick=()=>{panel.classList.remove('visible');panel.dataset.ipeOpen='0';panel.style.display='none';};
+                document.body.append(panel);
+            }
+            panel.classList.add('visible');panel.dataset.ipeOpen='1';
+            panel.style.setProperty('display','flex','important');panel.style.setProperty('width','2px','important');
+        },60);};
+        document.body.append(native);
     }""")
     for _ in range(2):
         page.get_by_role('button',name='打开小海螺').click()
+        expect(page.locator('#ipe-panel')).to_be_visible()
+        page.get_by_role('button',name='打开小海螺').click()
+        expect(page.locator('#ipe-panel')).to_be_visible()
         bounds=page.locator('#ipe-panel').bounding_box()
         assert bounds and bounds['width']>300 and bounds['height']>200
         assert page.locator('#ipe-chat-quick-entry').count()==0
         page.get_by_text('关闭小海螺').click()
         expect(page.locator('#ipe-panel')).to_be_hidden()
+    # An existing panel can still open when the native drawer button is absent.
+    page.evaluate("document.getElementById('iped-open-panel').remove()")
+    page.get_by_role('button',name='打开小海螺').click()
+    expect(page.locator('#ipe-panel')).to_be_visible()
+    page.get_by_text('关闭小海螺').click()
+    expect(page.locator('#ipe-panel')).to_be_hidden()
     page.get_by_role('button',name='折光主页').click()
     for label,value in [('连接名称','我的接口'),('API 地址',base+'/v1'),('API Key','mock-only')]:
         page.get_by_label(label,exact=label=='模型').fill(value)
@@ -124,7 +139,7 @@ with sync_playwright() as pw:
     page.locator('.br-full').get_by_text('关闭').click()
     page.get_by_role('button',name='设置').click()
     page.get_by_label('每条新 AI 回复自动生图').check()
-    page.get_by_text('关闭').click()
+    page.locator('.br-dialog[open]').get_by_role('button',name='关闭',exact=True).click()
     page.evaluate("""() => {
         c.chat[0].mes='other story';c.chat[0].swipe_id=1;
         for(const id of ['ipe-btn-extract','ipe-btn-inject','ipe-btn-stop']) {

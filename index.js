@@ -142,11 +142,13 @@ function floorBox(items) {
     let start;big.ontouchstart=e=>{start=e.touches[0].clientX;};big.ontouchend=e=>{const dx=e.changedTouches[0].clientX-start;if(Math.abs(dx)>45){if(e.cancelable)e.preventDefault();move(dx>0?-1:1);}};
     if(items.length>1)nav.append(button('‹ 上一张',()=>move(-1)),button('下一张 ›',()=>move(1)));
     nav.append(button('保存原图',()=>saveOriginal(items[pos])));area.append(big,nav);wrap.append(summary,area);
+    // Save the intended state before the browser queues the asynchronous toggle event.
+    summary.onclick=()=>setView(last,{open:!wrap.open,id:items[pos].id});
     wrap.ontoggle=()=>{if(wrap.isConnected)setView(last,{open:wrap.open,id:items[pos].id});};draw();return wrap;
 }
 function renderFloors() {
     const s=scope(),groups=new Map();
-    for(const a of db().album){if(a.chat!==s.chat||a.card!==s.card)continue;const k=groupKey(a);if(!groups.has(k))groups.set(k,[]);groups.get(k).push(a);}
+    for(const a of db().album){if(a.chat!==s.chat||a.card!==s.card)continue;const k=groupKey(a);if(!groups.has(k)){groups.set(k,[]);}groups.get(k).push(a);}
     for(const el of document.querySelectorAll('#chat .mes[mesid]')) {
         const m=ctx().chat[Number(el.getAttribute('mesid'))],id=versionId(m),target=q('.mes_block',el) || el;
         const items=id && groups.get(groupKey({...s,anchor:id,swipe:m.swipe_id??0}));
