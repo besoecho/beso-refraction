@@ -1,0 +1,11 @@
+{
+  "display_name": "折光",
+  "loading_order": 50,
+  "requires": [],
+  "optional": [],
+  "js": "index.js",
+  "css": "style.css",
+  "author": "besoecho",
+  "version": "0.1.0",
+  "homePage": "https://github.com/besoecho/beso-refraction"
+}
