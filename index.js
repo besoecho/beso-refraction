@@ -41,7 +41,7 @@ async function run(task) {
     } catch(e) {
         if (!signal.aborted && e.imageUrl) {
             const {body}=modal('下载原图失败');
-            body.append(node('p','渠道已经返回图片。可打开原图手动保存，链接可能会过期。'));
+            body.append(node('p',e.message),node('p','可打开原图手动保存，链接可能会过期。'));
             const link=node('a','打开渠道原图');link.href=e.imageUrl;link.target='_blank';link.rel='noopener noreferrer';body.append(link);
         } else notify(stage+' · '+(signal.aborted?signal.reason?.message:e.message),true);
     }

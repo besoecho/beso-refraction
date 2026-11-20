@@ -5,7 +5,7 @@ export const db = () => ctx().extensionSettings.besoRefraction ??= {profiles:[],
 export const save = () => ctx().saveSettingsDebounced();
 export const uid = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), n => n.toString(16).padStart(2,'0')).join('');
 export const q = (s, el=document) => el.querySelector(s);
-export const notify = (s, error=false) => window.toastr ? toastr[error?'error':'info'](s,'折光') : console.info('折光',s);
+export const notify = (s, error=false) => window.toastr ? toastr[error?'error':'info'](s,'折光',{escapeHtml:true}) : console.info('折光',s);
 export const drawPattern = /<draw\b[^>]*>([\s\S]*?)<\/draw\s*>/gi;
 export function readDraw(text) {
     return [...String(text).matchAll(drawPattern)].map(m=>m[1].trim()).filter(Boolean).at(-1) || '';

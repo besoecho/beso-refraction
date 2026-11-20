@@ -78,3 +78,19 @@ test('failed download preserves an openable original and never repeats the paid 
     await assert.rejects(generate(base,'test',new AbortController().signal,s=>stages.push(s)),err=>err.imageUrl==='https://cdn.invalid/result.png');
     assert.deepEqual(stages,['读取渠道回包','下载原图']);assert.deepEqual(calls,['POST','GET','GET']);
 });
+
+test('shows upstream 400 details without echoing credentials, prompts or validation inputs',async()=>{
+    const signal=new AbortController().signal;
+    for(const [body,visible] of [
+        [JSON.stringify({error:{param:'size',message:'Unsupported size; use 1024x1024'}}),'size · Unsupported size; use 1024x1024'],
+        [JSON.stringify({detail:[{loc:['body','model'],msg:'Field required',input:'PRIVATE'}]}),'body.model · Field required'],
+        ['bad model for Bearer TOKEN','bad model for Bearer …'],
+        [JSON.stringify({message:'invalid my-key / private prompt'}),'invalid … / …'],
+        ['<!DOCTYPE html><title>Bad request</title>','未提供详细原因'],
+    ]) {
+        let calls=0;
+        global.fetch=async()=>{calls++;return new Response(body,{status:400});};
+        await assert.rejects(generate({...base,key:'my-key'},'private prompt',signal),err=>err.message.includes(visible) && !err.message.includes('PRIVATE'));
+        assert.equal(calls,1);
+    }
+});

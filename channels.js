@@ -14,6 +14,31 @@ function safeUrl(value) {
     if (!['http:', 'https:'].includes(u.protocol) || u.username || u.password) throw Error('请填写 HTTP(S) 地址');
     return u.href;
 }
+function rejectionDetail(raw, key, prompt) {
+    let reason;
+    try {
+        const data=JSON.parse(raw);
+        if (typeof data==='string') reason=data;
+        else {
+            const field=data?.error?.param;
+            reason=[data?.error?.message, data?.message, data?.detail, data?.error, data?.error?.code]
+                .find(v=>typeof v==='string' && v.trim());
+            if (!reason && Array.isArray(data?.detail)) {
+                const issue=data.detail.find(v=>typeof v?.msg==='string');
+                if (issue) reason=[issue.loc?.join?.('.'),issue.msg].filter(Boolean).join(' · ');
+            }
+            if (reason && typeof field==='string') reason=field+' · '+reason;
+        }
+    } catch {
+        if (!/^\s*[<{[]/.test(raw)) reason=raw;
+    }
+    if (!reason) return '';
+    for (const secret of [key,prompt]) {
+        if (typeof secret==='string' && secret) reason=reason.replaceAll(secret,'…');
+    }
+    return reason.replace(/\bBearer\s+[\w.~+/=-]+/gi,'Bearer …')
+        .replace(/https?:\/\/\S+/gi,'[地址]').replace(/\s+/g,' ').trim().slice(0,260);
+}
 async function requestOnce(p, url, signal, body, authenticated) {
     const remote = safeUrl(url);
     const headers = {};
@@ -26,10 +51,12 @@ async function requestOnce(p, url, signal, body, authenticated) {
         redirect: authenticated && p.key ? 'error' : 'follow', credentials: throughProxy ? 'same-origin' : 'omit',
         body: body === undefined ? undefined : JSON.stringify(body)});
     if (!response.ok) {
-        if (throughProxy && response.status===404 && (await response.text()).includes('CORS proxy is disabled')) {
+        const raw=await response.text().catch(()=>'');
+        if (throughProxy && response.status===404 && raw.includes('CORS proxy is disabled')) {
             throw Error('酒馆服务器未启用 CORS 代理，当前代理连接不可用');
         }
-        throw Error('接口返回 HTTP ' + response.status);
+        const detail=rejectionDetail(raw,p.key,body?.prompt ?? body?.input);
+        throw Error('接口返回 HTTP ' + response.status + (detail?' · '+detail:'（未提供详细原因）'));
     }
     return response;
 }
