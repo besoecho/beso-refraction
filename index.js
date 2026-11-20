@@ -1,3 +1,4 @@
+import {backupControls} from './backup.js';
 import {generate,kind} from './channels.js';
 import {ctx,db,save,uid,q,notify,scope,latest,capture,alive,anchor,versionId,hasHailuo,openHailuo,extract,upload} from './core.js';
 import {node,button,connections,activeProfile} from './connections.js';
@@ -97,12 +98,12 @@ function auto(i) {
     if(job) {if(!same(currentTarget) && !queue.some(same))queue.push(t);}
     else void run({target:t});
 }
-function panelOpen(tab='相册') {
+function panelOpen(tab='生图连接') {
     if(panel?.open){panel.focus();return;}
     const {dlg,body}=modal('折光');panel=dlg;
     const nav=node('nav'),page=node('div',undefined,'br-page');body.append(nav,page);
     function show(label){
-        galleryRefresh=null;page.replaceChildren();
+        galleryRefresh=null;page.replaceChildren();page.dataset.tab=label;
         for(const b of nav.children)b.setAttribute('aria-pressed',String(b.textContent===label));
         if(label==='相册')galleryRefresh=gallery(page,hooks);
         else if(label==='生图连接')connections(page);
@@ -111,10 +112,15 @@ function panelOpen(tab='相册') {
                 const row=node('label',l,'br-switch'),input=node('input');input.type='checkbox';input.checked=Boolean(db()[k]);
                 input.onchange=()=>{db()[k]=input.checked;save();if(k==='auto' && !input.checked)queue.length=0;};row.prepend(input);page.append(row);
             }
-            page.append(node('p','使用自动生图时，请在小海螺关闭它自己的自动提取。'));
+            page.append(node('p','使用自动生图时，请在小海螺关闭它自己的自动提取。','br-note'));
+            backupControls(page,()=>{refresh();if(page.isConnected && page.dataset.tab==='设置')show('设置');});
         }
     }
-    for(const label of ['相册','生图连接','设置'])nav.append(button(label,()=>show(label)));
+    for(const [label,icon] of [['生图连接','fa-plug'],['相册','fa-images'],['设置','fa-sliders']]) {
+        const tab=button(label,()=>show(label));
+        const glyph=node('i',undefined,'fa-solid '+icon);glyph.setAttribute('aria-hidden','true');
+        tab.prepend(glyph);nav.append(tab);
+    }
     dlg.addEventListener('close',()=>{galleryRefresh=null;panel=null;});
     show(tab);
 }
@@ -167,7 +173,7 @@ function init() {
     }
     bar=node('div');bar.id='br-bar';bar.setAttribute('role','toolbar');bar.setAttribute('aria-label','折光');
     function icon(title,cls,fn){const b=button('',fn);b.append(node('i',undefined,'fa-solid '+cls));b.title=title;b.setAttribute('aria-label',title);bar.append(b);return b;}
-    icon('折光主页','fa-house',()=>panelOpen(db().profiles.length?'相册':'生图连接'));
+    icon('折光主页','fa-house',()=>panelOpen());
     trigger=icon('生成最新 AI 回复的图片','fa-image',()=>{if(job){stop();return;} const stream=ctx().streamingProcessor;if(stream && !stream.isFinished && !stream.isStopped){notify('等这条 AI 回复写完再生图');return;} if(!db().profiles.length){panelOpen('生图连接');return;}const t=capture(latest());void run({target:t});});
     shell=icon('打开小海螺','fa-water',openHailuo);shell.firstChild.remove();shell.textContent='🐚';
     status=node('span','','br-status');status.setAttribute('aria-live','polite');bar.append(status);

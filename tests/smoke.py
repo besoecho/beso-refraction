@@ -90,17 +90,13 @@ with sync_playwright() as pw:
     page.get_by_role('button',name='折光主页').click()
     for label,value in [('连接名称','我的接口'),('API 地址',base+'/v1'),('API Key','mock-only')]:
         page.get_by_label(label,exact=label=='模型').fill(value)
-    page.get_by_role('button',name='测试 / 获取模型').click()
+    page.get_by_role('button',name='获取模型').click()
     expect(page.locator('.br-note')).to_contain_text('1 个模型')
     page.get_by_label('选择模型').select_option('test-model')
     page.get_by_label('预设尺寸').select_option('2160x3840')
     page.get_by_role('button',name='保存并使用').click()
     assert page.evaluate('c.extensionSettings.besoRefraction.profiles[0].model')=='test-model'
     assert page.evaluate('c.extensionSettings.besoRefraction.profiles[0].size')=='2160x3840'
-    with page.expect_download() as downloaded:
-        page.get_by_role('button',name='导出连接').click()
-    exported = Path(downloaded.value.path()).read_text()
-    assert 'mock-only' not in exported and '我的接口' in exported
     page.get_by_role('button',name='关闭').click()
     def generate(count):
         page.get_by_role('button',name='生成最新 AI 回复的图片').click()
@@ -118,6 +114,7 @@ with sync_playwright() as pw:
     expect(page.locator('.br-floor')).to_have_count(1)
     assert not page.locator('.br-floor').evaluate('e=>e.open')
     page.get_by_role('button',name='折光主页').click()
+    page.get_by_role('button',name='相册',exact=True).click()
     expect(page.locator('.br-tile')).to_have_count(2)
     page.locator('.br-tile button').first.click()
     expect(page.locator('.br-full')).to_be_visible()

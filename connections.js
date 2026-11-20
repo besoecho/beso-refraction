@@ -1,5 +1,5 @@
 import {db, save, uid, notify} from './core.js';
-import {kind, models} from './channels.js';
+import {kind, models, testConnection} from './channels.js';
 
 export function node(tag,text,cls) {
     const el=document.createElement(tag);
@@ -29,14 +29,14 @@ export function activeProfile() {
     if (!p) throw Error('先到「主页 → 生图连接」保存一套连接');
     return {...p,key:localStorage.getItem(keyName(p)) || ''};
 }
-function plain(p) {
+export function plain(p) {
     const obj=blank();
     for (const k of ['name','url','model','size','type','workflow','template']) if (typeof p[k]==='string') obj[k]=p[k].trim();
     obj.proxy=p.proxy===true;
     if (p.modelsUrl && p.modelsUrl===obj.url) obj.modelsUrl=obj.url;
     return obj;
 }
-function validate(p) {
+export function validate(p) {
     if (!p.name || !p.url) throw Error('请填写连接名称和 API 地址');
     const url=new URL(p.url);
     if (!['https:','http:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw Error('地址需要以 http(s) 开头，密钥请单独填写');
@@ -65,7 +65,7 @@ export function connections(root) {
     let draft={...(db().profiles.find(p=>p.id===db().activeId) || blank())};
     function draw() {
         root.replaceChildren();
-        const list=node('select');
+        const list=node('select');list.className='br-profile';list.setAttribute('aria-label','当前连接');
         for(const p of db().profiles) option(list,p.id,p.name);
         option(list,'','＋ 新连接'); list.value=db().profiles.some(p=>p.id===draft.id)?draft.id:'';
         list.onchange=()=>{const p=db().profiles.find(p=>p.id===list.value); draft={...(p || blank())}; if(p){db().activeId=p.id;save();} draw();};
@@ -144,35 +144,37 @@ export function connections(root) {
             if(secret.value.trim()) localStorage.setItem(keyName(p),secret.value.trim()); else localStorage.removeItem(keyName(p));
             const i=db().profiles.findIndex(o=>o.id===p.id); if(i<0) db().profiles.push(p); else db().profiles[i]=p;
             db().activeId=p.id;save();draft={...p};draw();notify('已使用「'+p.name+'」');
-        }),button('测试 / 获取模型',async()=>{
+        }));
+        actions.firstChild.classList.add('br-primary');
+        async function check(loadingModels) {
             const run=++requestNumber;
-            note.textContent='正在测试…'; const p={...draft,key:secret.value.trim()};
+            const p={...draft,key:secret.value.trim()};
+            const isCurrent=()=>run===requestNumber && picker.isConnected;
+            note.textContent=loadingModels?'正在获取模型…':'正在测试连接…';
+            fetchButton.disabled=testButton.disabled=true;
             try {
-                let names;
-                try { names=await models(p,AbortSignal.timeout(15000)); }
+                const action=loadingModels ? models : testConnection;
+                let result;
+                try {result=await action(p,AbortSignal.timeout(15000));}
                 catch(e) {
-                    if (run!==requestNumber || !picker.isConnected) return;
+                    if (!isCurrent()) return;
                     if (p.proxy || !(e instanceof TypeError || e.name==='TimeoutError')) throw e;
-                    names=await models({...p,proxy:true},AbortSignal.timeout(15000));
-                    if (run!==requestNumber || !picker.isConnected) return;
+                    result=await action({...p,proxy:true},AbortSignal.timeout(15000));
+                    if (!isCurrent()) return;
                     proxy.checked=true; draft.proxy=true;
                 }
-                if (run!==requestNumber || !picker.isConnected) return;
-                names=[...new Set(names.filter(n=>typeof n==='string' && n.length>0))];
+                if (!isCurrent()) return;
+                if (!loadingModels) {note.textContent=result;return;}
+                const names=[...new Set(result.filter(n=>typeof n==='string' && n.length>0))];
                 if (names.length && p.type==='auto') draft.modelsUrl=p.url.trim();
                 modelLists.set(modelListKey(p),names);showModels(names);
-                note.textContent=names.length?'已取得 '+names.length+' 个模型，可点模型框选取。':'已连接';
-            } catch(e) {if(run===requestNumber && picker.isConnected){details.open=true;note.textContent=e.message;}}
-        }),button('导出连接',()=>{
-            const clean=db().profiles.map(p=>{const copy=plain(p); delete copy.id;return copy;});
-            fileBlob(new Blob([JSON.stringify(clean,null,2)],{type:'application/json'}),'折光-连接.json');
-        }),button('导入连接',()=>files.click()));
-        const files=node('input');files.type='file';files.accept='.json';files.hidden=true;root.append(files);
-        files.onchange=async()=>{
-            try {const set=JSON.parse(await files.files[0].text());if(!Array.isArray(set)||!set.length)throw Error('请选择连接配置数组');
-                const profiles=set.map(plain);profiles.forEach(validate);db().profiles.push(...profiles);draft=profiles[0];db().activeId=draft.id;save();draw();notify('已导入，请补填 API Key');
-            }catch(e){notify(e.message,true);}
-        };
+                note.textContent=names.length?'已取得 '+names.length+' 个模型，可点模型框选取。':'列表为空，可手动填写模型。';
+            } catch(e) {if(isCurrent()){details.open=true;note.textContent=e.message;}}
+            finally {fetchButton.disabled=testButton.disabled=false;}
+        }
+        const fetchButton=button('获取模型',()=>check(true)),testButton=button('测试连接',()=>check(false));
+        actions.prepend(fetchButton,testButton);
+        note.setAttribute('aria-live','polite');
     }
     draw();
 }

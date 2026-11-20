@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { generate, kind, models } from '../channels.js';
+import { generate, kind, models, testConnection } from '../channels.js';
 import { readDraw } from '../core.js';
 
 const base={url:'https://example.invalid/v1',type:'auto',size:'1024x1024',key:'mock',model:'test'};
@@ -100,4 +100,13 @@ test('reports the upstream merged prompt limit without sending again',async()=>{
     global.fetch=async()=>{calls++;return new Response(JSON.stringify({message:'正面提示词（input）：最多 8000 个字符；合并后的提示词不能超过 8000 字符。未扣积分。'}),{status:400});};
     await assert.rejects(generate(base,'a'.repeat(8001),new AbortController().signal),e=>e.promptLimit===8000);
     assert.equal(calls,1);
+});
+
+test('connection checks use only read-only endpoints and do not generate images or populate a model list',async()=>{
+    const requests=[];
+    global.fetch=async(url,init)=>{requests.push([new URL(url).pathname,init.method]);assert.equal(init.body,undefined);return json({system:{}});};
+    for(const type of ['openai','nai','runninghub','comfy','custom']) await testConnection({...base,type},new AbortController().signal);
+    assert.deepEqual(requests,[['/v1/models','HEAD'],['/','HEAD'],['/','HEAD'],['/v1/system_stats','GET'],['/','HEAD']]);
+    await assert.rejects(models({...base,type:'comfy'},new AbortController().signal),/模型列表/);
+    assert.equal(requests.length,5);
 });

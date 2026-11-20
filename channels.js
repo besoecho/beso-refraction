@@ -39,7 +39,7 @@ function rejectionDetail(raw, key, prompt) {
     return reason.replace(/\bBearer\s+[\w.~+/=-]+/gi,'Bearer …')
         .replace(/https?:\/\/\S+/gi,'[地址]').replace(/\s+/g,' ').trim().slice(0,260);
 }
-async function requestOnce(p, url, signal, body, authenticated) {
+async function requestOnce(p, url, signal, body, authenticated, method = body === undefined ? 'GET' : 'POST') {
     const remote = safeUrl(url);
     const headers = {};
     if (authenticated && p.key && new URL(remote).origin === new URL(p.url).origin) headers.Authorization = 'Bearer ' + p.key;
@@ -47,7 +47,7 @@ async function requestOnce(p, url, signal, body, authenticated) {
     const throughProxy = p.proxy || (globalThis.location?.protocol === 'https:' && new URL(remote).protocol === 'http:');
     const destination = throughProxy ? '/proxy/' + encodeURIComponent(remote) : remote;
     if (throughProxy) headers['X-CSRF-Token'] = SillyTavern.getContext().getRequestHeaders()['X-CSRF-Token'];
-    const response = await fetch(destination, {method: body === undefined ? 'GET' : 'POST', headers, signal,
+    const response = await fetch(destination, {method, headers, signal,
         redirect: authenticated && p.key ? 'error' : 'follow', credentials: throughProxy ? 'same-origin' : 'omit',
         body: body === undefined ? undefined : JSON.stringify(body)});
     if (!response.ok) {
@@ -93,8 +93,24 @@ export async function models(p, signal) {
         if (!Array.isArray(data.data)) throw Error('接口未返回模型列表，可手动填写');
         return data.data.map(m => m.id);
     }
-    if (type === 'comfy') { await request(p, base + '/system_stats', signal); return []; }
-    throw Error('该协议请手动填写模型或工作流，连接将在首次出图时验证');
+    throw Error('该连接没有可用的模型列表，请手动填写模型或工作流');
+}
+export async function testConnection(p,signal) {
+    const base=endpoint(p), type=kind({...p,model:''});
+    if (type==='comfy') {
+        const result=await requestOnce(p,base+'/system_stats',signal,undefined,true);
+        const data=await result.json();
+        if (!data.system) throw Error('服务已响应，但没有返回 ComfyUI 系统信息');
+        return '已连通 ComfyUI';
+    }
+    const url=type==='openai' ? base.replace(/\/images\/generations$/,'')+'/models' : new URL(base).origin+'/';
+    try {
+        await requestOnce(p,url,signal,undefined,type==='openai','HEAD');
+    } catch (e) {
+        if (/HTTP (405|501)\b/.test(e.message)) throw Error('服务已响应，但不支持只读 HEAD 测试');
+        throw e;
+    }
+    return '地址已响应。此次只检查连通性。';
 }
 function fillTemplate(template, values) {
     if (Array.isArray(template)) return template.map(x => fillTemplate(x, values));
