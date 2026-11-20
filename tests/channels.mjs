@@ -94,3 +94,10 @@ test('shows upstream 400 details without echoing credentials, prompts or validat
         assert.equal(calls,1);
     }
 });
+
+test('reports the upstream merged prompt limit without sending again',async()=>{
+    let calls=0;
+    global.fetch=async()=>{calls++;return new Response(JSON.stringify({message:'正面提示词（input）：最多 8000 个字符；合并后的提示词不能超过 8000 字符。未扣积分。'}),{status:400});};
+    await assert.rejects(generate(base,'a'.repeat(8001),new AbortController().signal),e=>e.promptLimit===8000);
+    assert.equal(calls,1);
+});

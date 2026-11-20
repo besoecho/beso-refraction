@@ -1,4 +1,4 @@
-import {generate} from './channels.js';
+import {generate,kind} from './channels.js';
 import {ctx,db,save,uid,q,notify,scope,latest,capture,alive,anchor,versionId,hasHailuo,openHailuo,extract,upload} from './core.js';
 import {node,button,connections,activeProfile} from './connections.js';
 import {modal,gallery,viewer,saveOriginal} from './gallery.js';
@@ -12,21 +12,57 @@ const hooks={refresh,reroll(item,prompt) {
 }};
 function refresh() {renderFloors();galleryRefresh?.();}
 function stageText(text) {stage=text; if(status)status.textContent=text; if(trigger){trigger.title=text?'点击停止 · '+text:'生成最新 AI 回复的图片'; trigger.setAttribute('aria-label',trigger.title);trigger.firstChild.className='fa-solid '+(text?'fa-stop':'fa-image');}}
+const promptLimits=new Map();
+const profileKey=p=>JSON.stringify([p.id,p.url,p.type,p.model]);
+function editLongPrompt(task,p,prompt,limit,confirmed) {
+    const {dlg,body}=modal('缩短生图提示词');
+    const note=node('p',confirmed?'渠道限制合并后的提示词最多 '+limit+' 字符。':'提示词较长，部分 NAI 渠道限制 8000 字符。');
+    const edit=node('textarea');
+    edit.setAttribute('aria-label','本次生图提示词');edit.rows=8;edit.value=prompt;
+    const count=node('p');count.setAttribute('aria-live','polite');
+    const submit=()=>{
+        const text=edit.value.trim();
+        if (!text || (confirmed && [...text].length>limit)) return;
+        if (job) throw Error('请等当前生图任务结束');
+        if (task.target && !alive(task.target)) throw Error('楼层或 Swipe 已改变，请返回目标楼层重新操作');
+        if (profileKey(activeProfile())!==profileKey(p)) throw Error('生图连接已改变，请重新点生图');
+        dlg.close();void run({...task,prompt:text,reviewed:true});
+    };
+    const send=button('用这段生成',submit);
+    const cut=button('保留前 '+limit+' 字',()=>{
+        edit.value=[...edit.value.trim()].slice(0,limit).join('');update();
+    });
+    function update() {
+        const n=[...edit.value.trim()].length;
+        count.textContent=n+' / '+limit+' 字符';
+        send.disabled=!n || (confirmed && (n>limit || edit.value.trim()===prompt.trim()));
+        cut.disabled=n<=limit;
+    }
+    edit.oninput=update;update();
+    body.append(note,edit,count,cut,send);
+}
 async function run(task) {
     if(job)return;
     const controller=new AbortController();job=controller;const signal=controller.signal;
     const timeout=setTimeout(()=>controller.abort(Error('任务超时')),180000);
     const t=task.target;currentTarget=t;
     const guard=t && setInterval(()=>{if(!alive(t))controller.abort(Error('目标聊天、楼层或 Swipe 已改变'));},150);
+    let p,prompt;
     try {
         stageText('检查连接');
-        const p=activeProfile(); let meta=task.source;
+        p=activeProfile(); let meta=task.source;
         if(t) {
             const id=await anchor(t);
             meta={card:t.card,chat:t.chat,anchor:id,swipe:t.swipe};
         }
-        const prompt=task.prompt || await extract(t,signal,stageText);
+        prompt=task.prompt || await extract(t,signal,stageText);
         signal.throwIfAborted(); if(t && !alive(t))throw Error('目标回复已改变');
+        const known=promptLimits.get(profileKey(p));
+        const suggest=kind(p)==='nai' || /^nai[-_ ]/i.test(p.model || '');
+        const limit=known ?? (suggest ? 8000 : undefined);
+        if (limit && [...prompt].length>limit && (known || !task.reviewed)) {
+            editLongPrompt(task,p,prompt,limit,Boolean(known));return;
+        }
         stageText('生图请求');
         const result=await generate(p,prompt,signal,stageText);
         signal.throwIfAborted(); if(t && !alive(t))throw Error('目标回复已改变');
@@ -39,7 +75,10 @@ async function run(task) {
         db().album.push(item);save();setView(item,{id:item.id,open:!db().collapsed});refresh();
         notify('图片已保存到相册');
     } catch(e) {
-        if (!signal.aborted && e.imageUrl) {
+        if (!signal.aborted && stage==='生图请求' && e.promptLimit && prompt) {
+            promptLimits.set(profileKey(p),e.promptLimit);
+            editLongPrompt(task,p,prompt,e.promptLimit,true);
+        } else if (!signal.aborted && e.imageUrl) {
             const {body}=modal('下载原图失败');
             body.append(node('p',e.message),node('p','可打开原图手动保存，链接可能会过期。'));
             const link=node('a','打开渠道原图');link.href=e.imageUrl;link.target='_blank';link.rel='noopener noreferrer';body.append(link);

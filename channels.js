@@ -56,7 +56,12 @@ async function requestOnce(p, url, signal, body, authenticated) {
             throw Error('酒馆服务器未启用 CORS 代理，当前代理连接不可用');
         }
         const detail=rejectionDetail(raw,p.key,body?.prompt ?? body?.input);
-        throw Error('接口返回 HTTP ' + response.status + (detail?' · '+detail:'（未提供详细原因）'));
+        const error=Error('接口返回 HTTP ' + response.status + (detail?' · '+detail:'（未提供详细原因）'));
+        if (response.status===400 && /提示词|prompt/i.test(detail)) {
+            const limit=detail.match(/(?:最多|不能超过|不得超过|上限为?)\s*([1-9]\d*)\s*个?字符/);
+            if (limit) error.promptLimit=Number(limit[1]);
+        }
+        throw error;
     }
     return response;
 }
