@@ -73,13 +73,16 @@ with sync_playwright() as pw:
     # Native opening is asynchronous and does not depend on an internal container class.
     page.evaluate("""() => {
         const native=document.createElement('button');native.id='iped-open-panel';native.hidden=true;
+        const clip=document.createElement('div');clip.id='ipe-clip';
+        clip.style.cssText='position:relative;height:36px;overflow:hidden;transform:translateZ(0);background:#8a7aa0';
+        document.body.append(clip,native);
         native.onclick=()=>{setTimeout(()=>{
             let panel=document.getElementById('ipe-panel');
             if(!panel){
                 panel=document.createElement('div');panel.id='ipe-panel';panel.style.display='none';
                 panel.innerHTML='<button>关闭小海螺</button><div class="ipe-body">提示词设置</div>';
                 panel.firstChild.onclick=()=>{panel.classList.remove('visible');panel.dataset.ipeOpen='0';panel.style.display='none';};
-                document.body.append(panel);
+                document.getElementById('ipe-clip').append(panel);
             }
             panel.classList.add('visible');panel.dataset.ipeOpen='1';
             panel.style.setProperty('display','flex','important');panel.style.setProperty('width','2px','important');
@@ -93,6 +96,8 @@ with sync_playwright() as pw:
         expect(page.locator('#ipe-panel')).to_be_visible()
         bounds=page.locator('#ipe-panel').bounding_box()
         assert bounds and bounds['width']>300 and bounds['height']>200
+        assert page.evaluate("""() => {const p=document.getElementById('ipe-panel'),r=p.getBoundingClientRect();
+            const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);return hit===p || p.contains(hit);}""")
         assert page.locator('#ipe-chat-quick-entry').count()==0
         page.get_by_text('关闭小海螺').click()
         expect(page.locator('#ipe-panel')).to_be_hidden()

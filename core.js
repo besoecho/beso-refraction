@@ -69,11 +69,16 @@ export async function openHailuo() {
     if (!panel._brCloseObserver) {
         const geometry = ['left','right','top','bottom','width','height','max-height','transform'];
         const saved = geometry.map(prop=>[prop,panel.style.getPropertyValue(prop),panel.style.getPropertyPriority(prop)]);
+        const home=panel.parentNode,next=panel.nextSibling;
         for (const prop of geometry) panel.style.removeProperty(prop);
+        // A transformed or clipped ancestor can turn the fixed panel into a thin strip.
+        // Keep its event handlers intact and only move the element while it is open.
+        if (home!==document.body) document.body.append(panel);
         const observer = new MutationObserver(()=>{
             if (hailuoOpen(panel)) return;
             observer.disconnect();
             panel.classList.remove('br-opened-hailuo');
+            if (home?.isConnected) home.insertBefore(panel,next?.parentNode===home?next:null);
             for (const [prop,value,priority] of saved) {
                 if (value && !panel.style.getPropertyValue(prop)) panel.style.setProperty(prop,value,priority);
             }
