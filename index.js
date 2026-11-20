@@ -28,7 +28,7 @@ async function run(task) {
         const prompt=task.prompt || await extract(t,signal,stageText);
         signal.throwIfAborted(); if(t && !alive(t))throw Error('目标回复已改变');
         stageText('生图请求');
-        const result=await generate(p,prompt,signal);
+        const result=await generate(p,prompt,signal,stageText);
         signal.throwIfAborted(); if(t && !alive(t))throw Error('目标回复已改变');
         stageText('图片保存');
         const id=uid(),path=await upload(result.blob,id);
@@ -38,7 +38,13 @@ async function run(task) {
         } catch {}
         db().album.push(item);save();setView(item,{id:item.id,open:!db().collapsed});refresh();
         notify('图片已保存到相册');
-    } catch(e) { notify(stage+' · '+(signal.aborted?signal.reason?.message:e.message),true); }
+    } catch(e) {
+        if (!signal.aborted && e.imageUrl) {
+            const {body}=modal('下载原图失败');
+            body.append(node('p','渠道已经返回图片。可打开原图手动保存，链接可能会过期。'));
+            const link=node('a','打开渠道原图');link.href=e.imageUrl;link.target='_blank';link.rel='noopener noreferrer';body.append(link);
+        } else notify(stage+' · '+(signal.aborted?signal.reason?.message:e.message),true);
+    }
     finally {
         clearTimeout(timeout);clearInterval(guard);job=null;currentTarget=null;stageText('');
         while(queue.length){const next=queue.shift();if(alive(next)){void run({target:next});break;}}

@@ -1,9 +1,10 @@
 export function kind(p) {
     if (p.type && p.type !== 'auto') return p.type;
     const u = new URL(p.url);
-    if (/(^|\.)novelai\.net$/.test(u.hostname)) return 'nai';
+    if (/(^|\.)novelai\.net$/.test(u.hostname) || /\/ai\/generate-image\/?$/i.test(u.pathname)) return 'nai';
     if (/(^|\.)runninghub\.(ai|cn)$/.test(u.hostname)) return 'runninghub';
     if (u.port === '8188' || /(?:^|[./-])comfyui(?:[./-]|$)/i.test(u.hostname+u.pathname)) return 'comfy';
+    if (p.modelsUrl === p.url.trim() || /\/(v1|images\/generations)\/?$/i.test(u.pathname)) return 'openai';
     if (/^nai-diffusion-/i.test(p.model || '')) return 'nai';
     return 'openai';
 }
@@ -24,7 +25,12 @@ async function requestOnce(p, url, signal, body, authenticated) {
     const response = await fetch(destination, {method: body === undefined ? 'GET' : 'POST', headers, signal,
         redirect: authenticated && p.key ? 'error' : 'follow', credentials: throughProxy ? 'same-origin' : 'omit',
         body: body === undefined ? undefined : JSON.stringify(body)});
-    if (!response.ok) throw Error('接口返回 HTTP ' + response.status);
+    if (!response.ok) {
+        if (throughProxy && response.status===404 && (await response.text()).includes('CORS proxy is disabled')) {
+            throw Error('酒馆服务器未启用 CORS 代理，当前代理连接不可用');
+        }
+        throw Error('接口返回 HTTP ' + response.status);
+    }
     return response;
 }
 async function request(p, url, signal, body, authenticated = true) {
@@ -48,7 +54,7 @@ export async function zipLibrary() {
 }
 function endpoint(p) { return safeUrl(p.url).replace(/\/+$/, ''); }
 export async function models(p, signal) {
-    const base = endpoint(p), type = kind(p);
+    const base = endpoint(p), type = kind({...p,model:''});
     if (type === 'openai') {
         const root = base.replace(/\/images\/generations$/, '');
         const data = await (await request(p, root + '/models', signal)).json();
@@ -65,28 +71,63 @@ function fillTemplate(template, values) {
     for (const [k,v] of Object.entries(values)) if (template === '{'+k+'}') return v;
     return template.replace(/\{(prompt|model|width|height|seed)\}/g, (_,k) => String(values[k]));
 }
-async function unpack(p, response, signal) {
+function decodeBase64(value) {
+    // Some mobile clients block fetch(data:...) even for a successful API result.
+    const raw = value.replace(/^data:image\/(?:png|webp|jpe?g);base64,/i,'');
+    try {
+        const binary=atob(raw);
+        const bytes=new Uint8Array(binary.length);
+        for(let i=0;i<bytes.length;i++) bytes[i]=binary.charCodeAt(i);
+        return new Blob([bytes]);
+    } catch { throw Error('渠道返回的图片编码不完整'); }
+}
+async function downloadResult(p, url, signal, progress, authenticated=false) {
+    progress('下载原图');
+    const remote=safeUrl(new URL(url, endpoint(p)+'/').href);
+    try {
+        return await (await request(p,remote,signal,undefined,authenticated)).blob();
+    } catch(e) {
+        signal.throwIfAborted();
+        const err=Error('渠道已返回原图地址，下载失败。'+(e instanceof TypeError?'浏览器未能读取图片。':e.message));
+        if (!authenticated) err.imageUrl=remote;
+        throw err;
+    }
+}
+async function unpack(p, response, signal, progress) {
     const mime = response.headers.get('content-type') || '';
     if (/image\/(png|jpeg|webp)/.test(mime)) return response.blob();
     const json = await response.json();
     const item = json.data?.[0] ?? json;
-    if (item.b64_json) return (await fetch('data:image/png;base64,' + item.b64_json, {signal})).blob();
-    if (item.url) return (await request(p, item.url, signal, undefined, false)).blob();
+    if (item.b64_json) return decodeBase64(item.b64_json);
+    if (typeof item.url==='string' && item.url) {
+        if (/^data:image\//i.test(item.url)) return decodeBase64(item.url);
+        return downloadResult(p,item.url,signal,progress);
+    }
     throw Error('接口未返回图片、url 或 b64_json');
 }
-export async function generate(p, prompt, signal) {
+export async function generate(p, prompt, signal, progress=()=>{}) {
     let base = endpoint(p);
     const type = kind(p);
     if (type === 'nai') base = base.replace(/\/ai\/generate-image$/, '');
     const [width,height] = p.size.split('x').map(Number);
     const seed = crypto.getRandomValues(new Uint32Array(1))[0];
     const vars = {prompt,model:p.model,width,height,seed};
-    const post = (suffix, body) => request(p, base + suffix, signal, body);
+    async function post(suffix,body) {
+        const route=p.proxy || (globalThis.location?.protocol==='https:' && base.startsWith('http:')) ? '酒馆代理' : '直连';
+        try { return await request(p,base+suffix,signal,body); }
+        catch(e) {
+            signal.throwIfAborted();
+            if (!(e instanceof TypeError)) throw e;
+            throw Error(route+'未收到渠道响应。请先查这次任务记录，确认后再重试');
+        }
+    }
     if (type === 'openai' || type === 'custom') {
         const custom = type === 'custom';
         const body = custom ? fillTemplate(JSON.parse(p.template), vars) : {model:p.model,prompt,size:p.size,n:1};
         const suffix = custom || base.endsWith('/images/generations') ? '' : '/images/generations';
-        return {blob:await unpack(p, await post(suffix,body),signal)};
+        const response=await post(suffix,body);
+        progress('读取渠道回包');
+        return {blob:await unpack(p,response,signal,progress)};
     }
     if (type === 'nai') {
         const parameters = {params_version:3,width,height,seed,steps:28,scale:5,sampler:'k_euler_ancestral',noise_schedule:'karras',n_samples:1,negative_prompt:''};
@@ -95,6 +136,10 @@ export async function generate(p, prompt, signal) {
             parameters.v4_negative_prompt = {caption:{base_caption:'',char_captions:[]},legacy_uc:false};
         }
         const response = await post('/ai/generate-image',{input:prompt,model:p.model,action:'generate',parameters});
+        progress('读取渠道回包');
+        if (/^(image\/|application\/json)/i.test(response.headers.get('content-type') || '')) {
+            return {blob:await unpack(p,response,signal,progress),seed};
+        }
         const zip = await (await zipLibrary()).loadAsync(await response.arrayBuffer());
         const file = Object.values(zip.files).find(f=>!f.dir && /\.(png|webp|jpe?g)$/i.test(f.name));
         if (!file) throw Error('NovelAI 压缩包没有图片');
@@ -105,22 +150,24 @@ export async function generate(p, prompt, signal) {
     if (type === 'comfy') {
         const {prompt_id:id} = await (await post('/prompt',{prompt:fillTemplate(template,vars)})).json();
         if (!id) throw Error('ComfyUI 未接受工作流');
+        progress('查询生图任务');
         while (!signal.aborted) {
             await delay(1200);
             const job = (await (await request(p,base+'/history/'+encodeURIComponent(id),signal)).json())[id];
             if (job?.status?.status_str === 'error') throw Error('ComfyUI 工作流执行失败');
             const img = Object.values(job?.outputs ?? {}).flatMap(o=>o.images ?? []).find(i=>i.type === 'output');
-            if (img) return {blob:await (await request(p,base+'/view?'+new URLSearchParams(img),signal)).blob()};
+            if (img) return {blob:await downloadResult(p,base+'/view?'+new URLSearchParams(img),signal,progress,true)};
             if (job?.status?.completed) throw Error('工作流没有输出图片');
         }
     } else {
         const {taskId} = await (await post('/openapi/v2/run/workflow/'+encodeURIComponent(p.workflow),{nodeInfoList:fillTemplate(template,vars)})).json();
         if (!taskId) throw Error('RunningHub 未接受工作流');
+        progress('查询生图任务');
         while (!signal.aborted) {
             await delay(2000);
             const result = await (await post('/openapi/v2/query',{taskId})).json();
             if (result.status === 'FAILED') throw Error('RunningHub 工作流执行失败');
-            if (result.status === 'SUCCESS') return {blob:await (await request(p,result.results[0].url,signal,undefined,false)).blob()};
+            if (result.status === 'SUCCESS') return {blob:await downloadResult(p,result.results[0].url,signal,progress)};
         }
     }
     signal.throwIfAborted();

@@ -33,6 +33,7 @@ function plain(p) {
     const obj=blank();
     for (const k of ['name','url','model','size','type','workflow','template']) if (typeof p[k]==='string') obj[k]=p[k].trim();
     obj.proxy=p.proxy===true;
+    if (p.modelsUrl && p.modelsUrl===obj.url) obj.modelsUrl=obj.url;
     return obj;
 }
 function validate(p) {
@@ -158,6 +159,7 @@ export function connections(root) {
                 }
                 if (run!==requestNumber || !picker.isConnected) return;
                 names=[...new Set(names.filter(n=>typeof n==='string' && n.length>0))];
+                if (names.length && p.type==='auto') draft.modelsUrl=p.url.trim();
                 modelLists.set(modelListKey(p),names);showModels(names);
                 note.textContent=names.length?'已取得 '+names.length+' 个模型，可点模型框选取。':'已连接';
             } catch(e) {if(run===requestNumber && picker.isConnected){details.open=true;note.textContent=e.message;}}

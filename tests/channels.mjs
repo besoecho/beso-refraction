@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { generate, models } from '../channels.js';
+import { generate, kind, models } from '../channels.js';
 import { readDraw } from '../core.js';
 
 const base={url:'https://example.invalid/v1',type:'auto',size:'1024x1024',key:'mock',model:'test'};
@@ -49,4 +49,32 @@ test('read retries once, paid request errors do not resubmit',async()=>{
 });
 test('last non-empty draw block can contain newlines',()=>{
     assert.equal(readDraw('text<DRAW>x</Draw><draw>y\nz</draw><draw> </draw>'),'y\nz');
+});
+
+test('reseller NAI model uses configured protocol and confirmed model-list URL',async()=>{
+    const p={...base,model:'nai-diffusion-4-5-full'};
+    assert.equal(kind(p),'openai');
+    assert.equal(kind({...p,type:'nai'}),'nai');
+    const relay={...p,url:'https://example.invalid/relay'};
+    assert.equal(kind(relay),'nai');
+    assert.equal(kind({...relay,modelsUrl:relay.url}),'openai');
+    assert.equal(kind({...relay,url:relay.url+'/ai/generate-image',modelsUrl:relay.url}),'nai');
+    global.fetch=async url=>{assert.equal(new URL(url).pathname,'/relay/models');return json({data:[{id:p.model}]});};
+    assert.deepEqual(await models(relay,new AbortController().signal),[p.model]);
+    await run({...relay,modelsUrl:relay.url},[{path:'/relay/images/generations',response:()=>json({data:[{b64_json:png.toString('base64')}]})}]);
+});
+test('native NovelAI relay may return PNG or JSON rather than a ZIP',async()=>{
+    const p={url:'https://example.invalid/ai/generate-image',model:'nai-diffusion-4'};
+    await run(p,[{path:'/ai/generate-image',response:image}]);
+    await run(p,[{path:'/ai/generate-image',response:()=>json({url:'data:image/png;base64,'+png.toString('base64')})}]);
+});
+test('failed download preserves an openable original and never repeats the paid POST',async()=>{
+    const calls=[],stages=[];
+    global.fetch=async(url,init)=>{
+        calls.push(init.method);
+        if(init.method==='POST')return json({data:[{url:'https://cdn.invalid/result.png'}]});
+        throw new TypeError('Failed to fetch');
+    };
+    await assert.rejects(generate(base,'test',new AbortController().signal,s=>stages.push(s)),err=>err.imageUrl==='https://cdn.invalid/result.png');
+    assert.deepEqual(stages,['读取渠道回包','下载原图']);assert.deepEqual(calls,['POST','GET','GET']);
 });
