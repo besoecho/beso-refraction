@@ -86,7 +86,6 @@ export function connections(root) {
         const model=input('模型','model');
         const picker=node('select');
         const pickerRow=field('选择模型',picker,'');
-        model.parentElement.before(pickerRow);
         function showModels(names) {
             picker.replaceChildren();
             option(picker,'','请选择模型');
@@ -104,7 +103,7 @@ export function connections(root) {
         };
         const sizePicker=node('select');
         const allSizes=sizeGroups.flatMap(([,values])=>values);
-        for (const [label,values] of sizeGroups) {
+        for(const [label,values] of sizeGroups) {
             const group=node('optgroup');group.label=label;
             for (const size of values) {
                 const [w,h]=size.split('x').map(Number);

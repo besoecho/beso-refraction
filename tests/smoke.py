@@ -112,6 +112,10 @@ with sync_playwright() as pw:
         page.get_by_label(label,exact=label=='模型').fill(value)
     page.get_by_role('button',name='获取模型').click()
     expect(page.locator('.br-note')).to_contain_text('1 个模型')
+    page.get_by_label('选择模型').select_option('__br_manual__')
+    expect(page.get_by_label('模型',exact=True)).to_be_visible()
+    assert page.locator('.br-field').evaluate_all("""rows => {const i=rows.findIndex(r=>r.firstChild?.textContent==='模型');
+        const p=rows.findIndex(r=>r.firstChild?.textContent==='选择模型');return i>=0 && p>i;}""")
     page.get_by_label('选择模型').select_option('test-model')
     page.get_by_label('预设尺寸').select_option('2160x3840')
     page.get_by_role('button',name='保存并使用').click()
