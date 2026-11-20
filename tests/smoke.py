@@ -151,19 +151,29 @@ with sync_playwright() as pw:
             const b=document.createElement('button');b.id=id;document.body.append(b);
         }
         const btn=id=>document.getElementById('ipe-btn-'+id);
+        let extractionTarget=0;
         btn('stop').disabled=btn('inject').disabled=true;
-        btn('extract').onclick=()=>{btn('stop').disabled=false; setTimeout(()=>{btn('inject').disabled=false;btn('stop').disabled=true;},50);};
-        btn('inject').onclick=()=>{c.chat[0].mes+=' <draw>night scene</draw>';btn('inject').disabled=true;};
+        btn('extract').onclick=()=>{
+            extractionTarget=c.chat.findLastIndex(m=>m && !m.is_user && !m.is_system && m.mes.trim());
+            btn('stop').disabled=false;setTimeout(()=>{btn('inject').disabled=false;btn('stop').disabled=true;},50);
+        };
+        btn('inject').onclick=()=>{c.chat[extractionTarget].mes+=' <draw>'+(extractionTarget===0?'night scene':'next scene')+'</draw>';btn('inject').disabled=true;};
         emit('MESSAGE_RECEIVED',0);
+        setTimeout(()=>{
+            c.chat.push({mes:'following story',swipe_id:0,extra:{},swipe_info:[{extra:{}}]});
+            emit('MESSAGE_RECEIVED',1);
+        },20);
     }""")
-    page.wait_for_function('c.extensionSettings.besoRefraction.album.length===2')
-    assert prompts == ['a cat','a cat','night scene']
+    page.wait_for_function('c.extensionSettings.besoRefraction.album.length===3')
+    assert prompts == ['a cat','a cat','night scene','next scene']
+    assert page.evaluate("""() => {const a=c.extensionSettings.besoRefraction.album;
+        return a[1].anchor===c.chat[0].extra.besoRefractionId && a[2].anchor===c.chat[1].extra.besoRefractionId;}""")
     page.evaluate("""() => {
-        c.chat[0].mes='another story';emit('MESSAGE_RECEIVED',0);
+        const i=c.chat.length-1;c.chat[i].mes='another story';emit('MESSAGE_RECEIVED',i);
         setTimeout(()=>{c.chatId='elsewhere';emit('CHAT_CHANGED');},25);
     }""")
     page.wait_for_timeout(400)
-    assert len(prompts)==3 and not errors, errors
+    assert len(prompts)==4 and not errors, errors
     browser.close()
 server.shutdown()
 print('PASS · profile, key-free export, manual, automatic, extraction, stale target, gallery deletion, swipe, collapse')

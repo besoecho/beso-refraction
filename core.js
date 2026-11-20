@@ -98,7 +98,8 @@ export async function extract(t, signal, stage) {
     if (!button || !inject) throw Error('请先安装并配置小海螺，或在回复中写入 <draw> 提示词');
     const check = () => {
         signal.throwIfAborted();
-        if (!alive(t) || ctx().chat.findLastIndex(m=>m && !m.is_user)!==t.i) throw Error('最新回复已改变，已停止提取');
+        // Extraction belongs to the captured floor; newer replies must not cancel it.
+        if (!alive(t)) throw Error('目标回复已改变，已停止提取');
     };
     check();
     if (stop && !stop.disabled || q('#ipe-chat-quick-entry.processing')) throw Error('小海螺正在执行其他提取，请等它完成');
